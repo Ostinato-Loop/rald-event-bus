@@ -30,11 +30,11 @@ jobs:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
         run: |
           if [ -z "$SUPABASE_ACCESS_TOKEN" ]; then
-            echo "WARN: SUPABASE_ACCESS_TOKEN not set — skipping DDL migration"
+            echo "WARN: SUPABASE_ACCESS_TOKEN not set - skipping DDL migration"
             exit 0
           fi
           SQL=$(cat supabase-full-schema.sql 2>/dev/null || echo "")
-          if [ -z "$SQL" ]; then echo "No schema file — skipping"; exit 0; fi
+          if [ -z "$SQL" ]; then echo "No schema file - skipping"; exit 0; fi
           STATUS=$(echo "$SQL" \
             | python3 -c 'import json,sys; print(json.dumps({"query": sys.stdin.read()}))' \
             | curl -sf -o /tmp/mg_out.json -w "%{http_code}" \
@@ -102,7 +102,7 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           SECRET_VAL: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: |
-          [ -n "$SECRET_VAL" ] && echo "$SECRET_VAL" | npx wrangler secret put SUPABASE_SERVICE_ROLE_KEY && echo "SUPABASE_SERVICE_ROLE_KEY ✓" || echo "WARN: not set"
+          [ -n "$SECRET_VAL" ] && echo "$SECRET_VAL" | npx wrangler secret put SUPABASE_SERVICE_ROLE_KEY && echo "SUPABASE_SERVICE_ROLE_KEY OK" || echo "WARN: not set"
 
       - name: Push RALD_JWT_SECRET
         continue-on-error: true
@@ -111,7 +111,7 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           SECRET_VAL: ${{ secrets.RALD_JWT_SECRET }}
         run: |
-          [ -n "$SECRET_VAL" ] && echo "$SECRET_VAL" | npx wrangler secret put RALD_JWT_SECRET && echo "RALD_JWT_SECRET ✓" || echo "WARN: not set"
+          [ -n "$SECRET_VAL" ] && echo "$SECRET_VAL" | npx wrangler secret put RALD_JWT_SECRET && echo "RALD_JWT_SECRET OK" || echo "WARN: not set"
 
       - name: Push RALD_INTERNAL_SECRET
         continue-on-error: true
@@ -120,7 +120,7 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           SECRET_VAL: ${{ secrets.RALD_INTERNAL_SECRET }}
         run: |
-          [ -n "$SECRET_VAL" ] && echo "$SECRET_VAL" | npx wrangler secret put RALD_INTERNAL_SECRET && echo "RALD_INTERNAL_SECRET ✓" || echo "WARN: RALD_INTERNAL_SECRET not set (legacy — OK)"
+          [ -n "$SECRET_VAL" ] && echo "$SECRET_VAL" | npx wrangler secret put RALD_INTERNAL_SECRET && echo "RALD_INTERNAL_SECRET OK" || echo "WARN: RALD_INTERNAL_SECRET not set (legacy - OK)"
 
       - name: Push MACHINE_KEY_ID
         continue-on-error: true
@@ -129,7 +129,7 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           SECRET_VAL: ${{ secrets.MACHINE_KEY_ID }}
         run: |
-          [ -n "$SECRET_VAL" ] && echo "$SECRET_VAL" | npx wrangler secret put MACHINE_KEY_ID && echo "MACHINE_KEY_ID ✓" || echo "WARN: MACHINE_KEY_ID not set"
+          [ -n "$SECRET_VAL" ] && echo "$SECRET_VAL" | npx wrangler secret put MACHINE_KEY_ID && echo "MACHINE_KEY_ID OK" || echo "WARN: MACHINE_KEY_ID not set"
 
       - name: Push MACHINE_KEY_SECRET
         continue-on-error: true
@@ -138,7 +138,7 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           SECRET_VAL: ${{ secrets.MACHINE_KEY_SECRET }}
         run: |
-          [ -n "$SECRET_VAL" ] && echo "$SECRET_VAL" | npx wrangler secret put MACHINE_KEY_SECRET && echo "MACHINE_KEY_SECRET ✓" || echo "WARN: MACHINE_KEY_SECRET not set"
+          [ -n "$SECRET_VAL" ] && echo "$SECRET_VAL" | npx wrangler secret put MACHINE_KEY_SECRET && echo "MACHINE_KEY_SECRET OK" || echo "WARN: MACHINE_KEY_SECRET not set"
 
       - name: Smoke test events.rald.cloud/health
         continue-on-error: true
