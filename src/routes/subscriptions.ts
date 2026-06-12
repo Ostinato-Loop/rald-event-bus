@@ -8,17 +8,13 @@ import type { Bindings, Variables } from "../index";
 import { getClientIp } from "../lib/auth";
 import { writeAuditLog } from "../lib/audit";
 import type { RaldEventType } from "../types/events";
+import { requireMachineAuth } from "../lib/machine-auth";
 
 const subscriptions = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
-function requireInternal(secret: string | undefined, env: Bindings): boolean {
-  return secret === env.RALD_INTERNAL_SECRET;
-}
 
 // ── GET /subscriptions — list all (internal only) ─────────────────────────────
-subscriptions.get("/subscriptions", async (c) => {
-  const secret = c.req.header("X-Internal-Secret");
-  if (!requireInternal(secret, c.env)) return c.json({ error: "Unauthorized" }, 401);
+subscriptions.get("/subscriptions", requireMachineAuth("events:read"), async (c) => {
   const db: SupabaseClient = c.get("db");
   const { data, error } = await db
     .from("event_subscriptions")
@@ -29,9 +25,7 @@ subscriptions.get("/subscriptions", async (c) => {
 });
 
 // ── POST /subscriptions — register a subscription ─────────────────────────────
-subscriptions.post("/subscriptions", async (c) => {
-  const secret = c.req.header("X-Internal-Secret");
-  if (!requireInternal(secret, c.env)) return c.json({ error: "Unauthorized" }, 401);
+subscriptions.post("/subscriptions", requireMachineAuth("events:write"), async (c) => {
   const db: SupabaseClient = c.get("db");
   const ip = getClientIp(c.req.raw);
   const body = await c.req.json<{
@@ -62,9 +56,7 @@ subscriptions.post("/subscriptions", async (c) => {
 });
 
 // ── DELETE /subscriptions/:id — deactivate subscription ───────────────────────
-subscriptions.delete("/subscriptions/:id", async (c) => {
-  const secret = c.req.header("X-Internal-Secret");
-  if (!requireInternal(secret, c.env)) return c.json({ error: "Unauthorized" }, 401);
+subscriptions.delete("/subscriptions/:id", requireMachineAuth("events:write"), async (c) => {
   const db: SupabaseClient = c.get("db");
   const ip = getClientIp(c.req.raw);
   const id = c.req.param("id");
