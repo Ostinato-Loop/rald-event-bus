@@ -13,13 +13,15 @@ SUPABASE_URL = "https://onxdcikfttdmnhofsuwo.supabase.co"
 pattern = "events.rald.cloud/*"
 zone_name = "rald.cloud"
 
+# KV IDs are patched at deploy time by the "Resolve KV namespace IDs" step
+# in .github/workflows/deploy.yml — do NOT hardcode IDs here.
 [[kv_namespaces]]
 binding = "RATE_LIMIT_KV"
-id = "placeholder-replace-after-deploy"
+id = "REPLACE_WITH_RATE_LIMIT_KV_ID"
 
 [[kv_namespaces]]
 binding = "FLAG_CACHE_KV"
-id = "placeholder-replace-after-deploy"
+id = "REPLACE_WITH_FLAG_CACHE_KV_ID"
 
 [observability]
 enabled = true
