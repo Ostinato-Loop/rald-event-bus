@@ -1,7 +1,6 @@
 // RALD Event Bus — Audit Stream Routes
 // Sprint: Operator Platform Phase 4 · 2026-06-12
-// Aggregated audit stream across all RALD services.
-// All services post audit events here; operators query from one place.
+// Updated: Machine Identity Phase 9 — requireMachineAuth() replaces requireInternal()
 // LILCKY STUDIO LIMITED
 
 import { Hono } from "hono";
@@ -9,17 +8,13 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Bindings, Variables } from "../index";
 import { getClientIp } from "../lib/auth";
 import { writeAuditLog } from "../lib/audit";
+import { requireMachineAuth, requireAdminSecret } from "../lib/machine-auth";
 
 const auditStream = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
-function requireInternal(secret: string | undefined, env: Bindings): boolean {
-  return secret === env.RALD_INTERNAL_SECRET;
-}
-
 // ── POST /audit — ingest an audit event from any RALD service ─────────────────
-auditStream.post("/audit", async (c) => {
-  const secret = c.req.header("X-Internal-Secret");
-  if (!requireInternal(secret, c.env)) return c.json({ error: "Unauthorized" }, 401);
+// Requires scope: "audit:write"
+auditStream.post("/audit", requireMachineAuth("audit:write"), async (c) => {
   const db: SupabaseClient = c.get("db");
   const ip = getClientIp(c.req.raw);
   const body = await c.req.json<{
@@ -53,16 +48,15 @@ auditStream.post("/audit", async (c) => {
 });
 
 // ── GET /audit — query the audit stream ──────────────────────────────────────
-auditStream.get("/audit", async (c) => {
-  const secret = c.req.header("X-Internal-Secret");
-  if (!requireInternal(secret, c.env)) return c.json({ error: "Unauthorized" }, 401);
+// Requires scope: "audit:read"
+auditStream.get("/audit", requireMachineAuth("audit:read"), async (c) => {
   const db: SupabaseClient = c.get("db");
   const service   = c.req.query("service");
   const action    = c.req.query("action");
   const userId    = c.req.query("user_id");
   const severity  = c.req.query("severity");
   const traceId   = c.req.query("trace_id");
-  const since     = c.req.query("since");   // ISO timestamp
+  const since     = c.req.query("since");
   const limit     = Math.min(Number(c.req.query("limit") ?? "100"), 500);
 
   let q = db.from("audit_stream").select("*").order("created_at", { ascending: false }).limit(limit);
@@ -79,9 +73,8 @@ auditStream.get("/audit", async (c) => {
 });
 
 // ── GET /audit/security — security-relevant events only ─────────────────────
-auditStream.get("/audit/security", async (c) => {
-  const secret = c.req.header("X-Internal-Secret");
-  if (!requireInternal(secret, c.env)) return c.json({ error: "Unauthorized" }, 401);
+// Requires scope: "audit:read"
+auditStream.get("/audit/security", requireMachineAuth("audit:read"), async (c) => {
   const db: SupabaseClient = c.get("db");
   const limit = Math.min(Number(c.req.query("limit") ?? "50"), 200);
   const { data, error } = await db.from("audit_stream")
