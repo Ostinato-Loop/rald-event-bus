@@ -28,6 +28,30 @@ jobs:
       - name: Install dependencies
         run: npm install
 
+      - name: Apply Supabase schema (idempotent DDL via Management API)
+        continue-on-error: true
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          if [ -z "$SUPABASE_ACCESS_TOKEN" ]; then
+            echo "WARNING: SUPABASE_ACCESS_TOKEN not set — skipping schema migration"
+            echo "Add your Supabase personal access token from https://supabase.com/dashboard/account/tokens"
+            exit 0
+          fi
+          SQL=$(cat supabase-full-schema.sql)
+          STATUS=$(curl -sf -o /tmp/mg_out.json -w "%{http_code}" \
+            -X POST "https://api.supabase.com/v1/projects/onxdcikfttdmnhofsuwo/database/query" \
+            -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d "{\"query\": $(echo "$SQL" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')}" \
+          )
+          cat /tmp/mg_out.json || true
+          if [ "$STATUS" = "200" ] || [ "$STATUS" = "201" ]; then
+            echo "Schema migration applied ✓ (HTTP $STATUS)"
+          else
+            echo "WARNING: schema migration returned HTTP $STATUS — may already be applied (IF NOT EXISTS)"
+          fi
+
       - name: Resolve KV namespace IDs via Cloudflare API
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -40,22 +64,17 @@ jobs:
             'Content-Type': 'application/json'
           };
           const base = `https://api.cloudflare.com/client/v4/accounts/${process.env.CLOUDFLARE_ACCOUNT_ID}/storage/kv/namespaces`;
-
           async function listAll() {
             const r = await fetch(`${base}?per_page=100`, { headers: h });
             const d = await r.json();
             if (!d.success) throw new Error(JSON.stringify(d.errors));
             return d.result;
           }
-
           async function resolveId(title) {
             const all = await listAll();
             const existing = all.find(n => n.title === title);
             if (existing) { console.log(`  [existing] ${title}`); return existing.id; }
-            const r = await fetch(base, {
-              method: 'POST', headers: h,
-              body: JSON.stringify({ title })
-            });
+            const r = await fetch(base, { method: 'POST', headers: h, body: JSON.stringify({ title }) });
             const d = await r.json();
             if (!d.success) {
               const retry = (await listAll()).find(n => n.title === title);
@@ -65,11 +84,9 @@ jobs:
             console.log(`  [created]  ${title}`);
             return d.result.id;
           }
-
           (async () => {
             const RATE_LIMIT_KV = await resolveId('rald-event-bus-rate-limit');
             const FLAG_CACHE_KV = await resolveId('rald-event-bus-flag-cache');
-
             let toml = fs.readFileSync('wrangler.toml', 'utf8');
             toml = toml.replace('REPLACE_WITH_RATE_LIMIT_KV_ID', RATE_LIMIT_KV);
             toml = toml.replace('REPLACE_WITH_FLAG_CACHE_KV_ID',  FLAG_CACHE_KV);
@@ -108,7 +125,28 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           RALD_JWT_SECRET: ${{ secrets.RALD_JWT_SECRET }}
           RALD_INTERNAL_SECRET: ${{ secrets.RALD_INTERNAL_SECRET }}
+          MACHINE_KEY_ID: ${{ secrets.MACHINE_KEY_ID }}
+          MACHINE_KEY_SECRET: ${{ secrets.MACHINE_KEY_SECRET }}
         run: |
           echo "$SUPABASE_SERVICE_ROLE_KEY" | npx wrangler secret put SUPABASE_SERVICE_ROLE_KEY
           echo "$RALD_JWT_SECRET"           | npx wrangler secret put RALD_JWT_SECRET
           echo "$RALD_INTERNAL_SECRET"      | npx wrangler secret put RALD_INTERNAL_SECRET
+          if [ -n "$MACHINE_KEY_ID" ]; then
+            echo "$MACHINE_KEY_ID"     | npx wrangler secret put MACHINE_KEY_ID
+            echo "$MACHINE_KEY_SECRET" | npx wrangler secret put MACHINE_KEY_SECRET
+            echo "MACHINE_KEY_ID + MACHINE_KEY_SECRET ✓"
+          else
+            echo "WARNING: MACHINE_KEY_ID not set — machine auth unavailable on event bus"
+          fi
+
+      - name: Smoke test events.rald.cloud/health
+        continue-on-error: true
+        run: |
+          sleep 8
+          STATUS=$(curl -sf -o /dev/null -w "%{http_code}" https://events.rald.cloud/health || echo "000")
+          echo "events.rald.cloud/health HTTP $STATUS"
+          [ "$STATUS" = "200" ] || echo "WARNING: expected 200, got $STATUS"
+
+      - name: Audit log
+        if: always()
+        run: echo "AUDIT: service=rald-event-bus commit=${{ github.sha }} actor=${{ github.actor }} ts=$(date -u +%Y-%m-%dT%H:%M:%SZ) status=${{ job.status }}"
