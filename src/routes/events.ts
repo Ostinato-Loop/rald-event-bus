@@ -6,20 +6,17 @@ import { Hono } from "hono";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Bindings, Variables } from "../index";
 import { getClientIp, generateHmacSignature } from "../lib/auth";
+import { requireMachineAuth } from "../lib/machine-auth";
 import { checkRateLimit } from "../lib/rate-limit";
 import { writeAuditLog } from "../lib/audit";
 import type { PublishEventRequest, RaldEvent, EventSubscription } from "../types/events";
 
 const events = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
-function requireInternal(secret: string | undefined, env: Bindings): boolean {
-  return secret === env.RALD_INTERNAL_SECRET;
-}
 
 // ── POST /events — publish an event ───────────────────────────────────────────
-events.post("/events", async (c) => {
-  const secret = c.req.header("X-Internal-Secret");
-  if (!requireInternal(secret, c.env)) return c.json({ error: "Unauthorized" }, 401);
+// Requires scope: "events:write"
+events.post("/events", requireMachineAuth("events:write"), async (c) => {
   const db: SupabaseClient = c.get("db");
   const ip = getClientIp(c.req.raw);
 
@@ -95,9 +92,8 @@ events.post("/events", async (c) => {
 });
 
 // ── GET /events — query event log ─────────────────────────────────────────────
-events.get("/events", async (c) => {
-  const secret = c.req.header("X-Internal-Secret");
-  if (!requireInternal(secret, c.env)) return c.json({ error: "Unauthorized" }, 401);
+// Requires scope: "events:read"
+events.get("/events", requireMachineAuth("events:read"), async (c) => {
   const db: SupabaseClient = c.get("db");
   const type    = c.req.query("type");
   const source  = c.req.query("source");
@@ -114,8 +110,6 @@ events.get("/events", async (c) => {
 
 // ── GET /events/:id — single event ────────────────────────────────────────────
 events.get("/events/:id", async (c) => {
-  const secret = c.req.header("X-Internal-Secret");
-  if (!requireInternal(secret, c.env)) return c.json({ error: "Unauthorized" }, 401);
   const db: SupabaseClient = c.get("db");
   const { data, error } = await db.from("event_log").select("*").eq("event_id", c.req.param("id")).single();
   if (error || !data) return c.json({ error: "Event not found" }, 404);
