@@ -1,0 +1,26 @@
+name: Deploy
+on:
+  push:
+    branches: [main]
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    needs: []
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: "22", cache: "npm" }
+      - run: npm ci
+      - name: Deploy to Cloudflare Workers
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          secrets: |
+            SUPABASE_SERVICE_ROLE_KEY
+            RALD_JWT_SECRET
+            RALD_INTERNAL_SECRET
+        env:
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          RALD_JWT_SECRET: ${{ secrets.RALD_JWT_SECRET }}
+          RALD_INTERNAL_SECRET: ${{ secrets.RALD_INTERNAL_SECRET }}
