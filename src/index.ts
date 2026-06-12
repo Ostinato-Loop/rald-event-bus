@@ -14,6 +14,7 @@ import type { KVNamespace } from "./lib/rate-limit";
 import healthRoutes       from "./routes/health";
 import eventsRoutes       from "./routes/events";
 import subscriptionRoutes from "./routes/subscriptions";
+import auditStreamRoutes  from "./routes/audit";
 
 export type Bindings = {
   SUPABASE_URL:              string;
@@ -82,6 +83,7 @@ app.use("*", async (c, next) => {
 app.route("/", healthRoutes);
 app.route("/", eventsRoutes);
 app.route("/", subscriptionRoutes);
+app.route("/", auditStreamRoutes);
 
 app.notFound((c) => c.json({ error: "Not found" }, 404));
 app.onError((err, c) => {
