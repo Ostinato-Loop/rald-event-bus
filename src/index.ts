@@ -72,7 +72,8 @@ app.use("*", cors({
 
 // ── Boot validation ────────────────────────────────────────────────────────────
 app.use("*", async (c, next) => {
-  const required = ["SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY", "RALD_JWT_SECRET", "RALD_INTERNAL_SECRET"];
+  const required = ["SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY", "RALD_JWT_SECRET"];
+  // RALD_INTERNAL_SECRET is a legacy shared secret — now optional (replaced by machine JWT)
   for (const key of required) {
     if (!c.env[key as keyof Bindings]) {
       return c.json({ error: `Missing required env: ${key}` }, 503);
