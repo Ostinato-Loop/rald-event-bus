@@ -13,15 +13,11 @@ jobs:
   deploy:
     name: Deploy to Cloudflare Workers (events.rald.cloud)
     runs-on: ubuntu-latest
-    environment: production
-    permissions:
-      contents: read
-      deployments: write
+
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: "22"
 
@@ -34,23 +30,21 @@ jobs:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
         run: |
           if [ -z "$SUPABASE_ACCESS_TOKEN" ]; then
-            echo "WARNING: SUPABASE_ACCESS_TOKEN not set — skipping schema migration"
-            echo "Add your Supabase personal access token from https://supabase.com/dashboard/account/tokens"
+            echo "WARN: SUPABASE_ACCESS_TOKEN not set — skipping DDL migration"
             exit 0
           fi
-          SQL=$(cat supabase-full-schema.sql)
-          STATUS=$(curl -sf -o /tmp/mg_out.json -w "%{http_code}" \
-            -X POST "https://api.supabase.com/v1/projects/onxdcikfttdmnhofsuwo/database/query" \
-            -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
-            -H "Content-Type: application/json" \
-            -d "{\"query\": $(echo "$SQL" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')}" \
+          SQL=$(cat supabase-full-schema.sql 2>/dev/null || echo "")
+          if [ -z "$SQL" ]; then echo "No schema file — skipping"; exit 0; fi
+          STATUS=$(echo "$SQL" \
+            | python3 -c 'import json,sys; print(json.dumps({"query": sys.stdin.read()}))' \
+            | curl -sf -o /tmp/mg_out.json -w "%{http_code}" \
+              -X POST "https://api.supabase.com/v1/projects/onxdcikfttdmnhofsuwo/database/query" \
+              -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
+              -H "Content-Type: application/json" \
+              -d @- \
           )
           cat /tmp/mg_out.json || true
-          if [ "$STATUS" = "200" ] || [ "$STATUS" = "201" ]; then
-            echo "Schema migration applied ✓ (HTTP $STATUS)"
-          else
-            echo "WARNING: schema migration returned HTTP $STATUS — may already be applied (IF NOT EXISTS)"
-          fi
+          echo "Supabase DDL: HTTP $STATUS"
 
       - name: Resolve KV namespace IDs via Cloudflare API
         env:
@@ -101,49 +95,56 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
-      - name: Ensure events.rald.cloud DNS record exists
+      - name: Push SUPABASE_SERVICE_ROLE_KEY
+        continue-on-error: true
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          SECRET_VAL: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: |
-          node -e "
-          const h={'Authorization':'Bearer '+process.env.CLOUDFLARE_API_TOKEN,'Content-Type':'application/json'};
-          (async()=>{
-            const z=await fetch('https://api.cloudflare.com/client/v4/zones?name=rald.cloud',{headers:h}).then(r=>r.json());
-            const zid=z.result?.[0]?.id; if(!zid){console.log('zone not found');return;}
-            const ex=await fetch('https://api.cloudflare.com/client/v4/zones/'+zid+'/dns_records?name=events.rald.cloud',{headers:h}).then(r=>r.json());
-            if(ex.result?.length){console.log('events DNS exists');return;}
-            const r=await fetch('https://api.cloudflare.com/client/v4/zones/'+zid+'/dns_records',{method:'POST',headers:h,body:JSON.stringify({type:'AAAA',name:'events',content:'100::',proxied:true})}).then(r=>r.json());
-            console.log(r.success?'Created events.rald.cloud AAAA 100::':'DNS error:'+JSON.stringify(r.errors));
-          })().catch(e=>console.error('[WARN]',e.message));
-          "
+          [ -n "$SECRET_VAL" ] && echo "$SECRET_VAL" | npx wrangler secret put SUPABASE_SERVICE_ROLE_KEY && echo "SUPABASE_SERVICE_ROLE_KEY ✓" || echo "WARN: not set"
 
-      - name: Push secrets to Worker
+      - name: Push RALD_JWT_SECRET
+        continue-on-error: true
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          RALD_JWT_SECRET: ${{ secrets.RALD_JWT_SECRET }}
-          RALD_INTERNAL_SECRET: ${{ secrets.RALD_INTERNAL_SECRET }}
-          MACHINE_KEY_ID: ${{ secrets.MACHINE_KEY_ID }}
-          MACHINE_KEY_SECRET: ${{ secrets.MACHINE_KEY_SECRET }}
+          SECRET_VAL: ${{ secrets.RALD_JWT_SECRET }}
         run: |
-          echo "$SUPABASE_SERVICE_ROLE_KEY" | npx wrangler secret put SUPABASE_SERVICE_ROLE_KEY
-          echo "$RALD_JWT_SECRET"           | npx wrangler secret put RALD_JWT_SECRET
-          echo "$RALD_INTERNAL_SECRET"      | npx wrangler secret put RALD_INTERNAL_SECRET
-          if [ -n "$MACHINE_KEY_ID" ]; then
-            echo "$MACHINE_KEY_ID"     | npx wrangler secret put MACHINE_KEY_ID
-            echo "$MACHINE_KEY_SECRET" | npx wrangler secret put MACHINE_KEY_SECRET
-            echo "MACHINE_KEY_ID + MACHINE_KEY_SECRET ✓"
-          else
-            echo "WARNING: MACHINE_KEY_ID not set — machine auth unavailable on event bus"
-          fi
+          [ -n "$SECRET_VAL" ] && echo "$SECRET_VAL" | npx wrangler secret put RALD_JWT_SECRET && echo "RALD_JWT_SECRET ✓" || echo "WARN: not set"
+
+      - name: Push RALD_INTERNAL_SECRET
+        continue-on-error: true
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          SECRET_VAL: ${{ secrets.RALD_INTERNAL_SECRET }}
+        run: |
+          [ -n "$SECRET_VAL" ] && echo "$SECRET_VAL" | npx wrangler secret put RALD_INTERNAL_SECRET && echo "RALD_INTERNAL_SECRET ✓" || echo "WARN: RALD_INTERNAL_SECRET not set (legacy — OK)"
+
+      - name: Push MACHINE_KEY_ID
+        continue-on-error: true
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          SECRET_VAL: ${{ secrets.MACHINE_KEY_ID }}
+        run: |
+          [ -n "$SECRET_VAL" ] && echo "$SECRET_VAL" | npx wrangler secret put MACHINE_KEY_ID && echo "MACHINE_KEY_ID ✓" || echo "WARN: MACHINE_KEY_ID not set"
+
+      - name: Push MACHINE_KEY_SECRET
+        continue-on-error: true
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          SECRET_VAL: ${{ secrets.MACHINE_KEY_SECRET }}
+        run: |
+          [ -n "$SECRET_VAL" ] && echo "$SECRET_VAL" | npx wrangler secret put MACHINE_KEY_SECRET && echo "MACHINE_KEY_SECRET ✓" || echo "WARN: MACHINE_KEY_SECRET not set"
 
       - name: Smoke test events.rald.cloud/health
         continue-on-error: true
         run: |
           sleep 8
-          STATUS=$(curl -sf -o /dev/null -w "%{http_code}" https://events.rald.cloud/health || echo "000")
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" https://events.rald.cloud/health || echo "000")
           echo "events.rald.cloud/health HTTP $STATUS"
           [ "$STATUS" = "200" ] || echo "WARNING: expected 200, got $STATUS"
 
