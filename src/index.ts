@@ -15,6 +15,7 @@ import healthRoutes       from "./routes/health";
 import eventsRoutes       from "./routes/events";
 import subscriptionRoutes from "./routes/subscriptions";
 import auditStreamRoutes  from "./routes/audit";
+import { requestLogger }   from "./lib/logger";
 
 export type Bindings = {
   SUPABASE_URL:              string;
@@ -26,6 +27,8 @@ export type Bindings = {
   SERVICE_VERSION:           string;
   RATE_LIMIT_KV:             KVNamespace;
   FLAG_CACHE_KV:             KVNamespace;
+  OPEN_OBSERVE_API_KEY?:     string;  // OpenObserve ingest key (C-CERT-004)
+  OPEN_OBSERVE_ENDPOINT?:    string;  // e.g. https://observe.rald.cloud/api/rald/rald-event-bus/_json
 };
 
 export type Variables = {
@@ -42,6 +45,9 @@ app.use("*", async (c, next) => {
   c.header("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
   c.header("Referrer-Policy", "no-referrer");
 });
+
+// ── Request logger — OpenObserve log shipping ────────────────────────────────
+app.use("*", requestLogger("rald-event-bus"));
 
 // ── CORS — internal RALD services only ───────────────────────────────────────
 app.use("*", cors({
