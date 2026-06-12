@@ -1,0 +1,29 @@
+name = "rald-event-bus"
+main = "src/index.ts"
+compatibility_date = "2025-06-01"
+compatibility_flags = []
+
+[vars]
+ENVIRONMENT  = "production"
+SERVICE_NAME = "rald-event-bus"
+SERVICE_VERSION = "1.0.0"
+SUPABASE_URL = "https://onxdcikfttdmnhofsuwo.supabase.co"
+
+[[routes]]
+pattern = "events.rald.cloud/*"
+zone_name = "rald.cloud"
+
+[[kv_namespaces]]
+binding = "RATE_LIMIT_KV"
+id = "placeholder-replace-after-deploy"
+
+[[kv_namespaces]]
+binding = "FLAG_CACHE_KV"
+id = "placeholder-replace-after-deploy"
+
+[observability]
+enabled = true
+head_sampling_rate = 1
+
+# Secrets — wrangler secret put:
+#   SUPABASE_SERVICE_ROLE_KEY  RALD_JWT_SECRET  RALD_INTERNAL_SECRET
