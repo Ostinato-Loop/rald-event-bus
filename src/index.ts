@@ -21,7 +21,7 @@ export type Bindings = {
   SUPABASE_URL:              string;
   SUPABASE_SERVICE_ROLE_KEY: string;
   RALD_JWT_SECRET:           string;
-  RALD_INTERNAL_SECRET:      string;  // shared secret for internal service-to-service calls
+  RALD_INTERNAL_SECRET?:     string;  // legacy shared secret — now optional (replaced by machine JWT)
   ENVIRONMENT:               string;
   SERVICE_NAME:              string;
   SERVICE_VERSION:           string;
@@ -36,6 +36,23 @@ export type Variables = {
 };
 
 const app = new Hono<{ Bindings: Bindings; Variables: Variables }>();
+
+// ── Health bypass — MUST be FIRST, before all middleware ──────────────────────
+// Health / readiness probes must always return 200 regardless of whether
+// runtime secrets are provisioned. The boot validation below returns 503 if any
+// required env var is missing — without this bypass that 503 hits health probes
+// too, making the service appear down even when the worker itself is running.
+// G.14 pattern: same fix applied to rald-inbox, rald-notify, rald-search,
+// rald-auth-core during the G.14 infrastructure hardening sprint.
+app.get("/health",  (c) => c.json({
+  status:      "ok",
+  service:     "rald-event-bus",
+  version:     c.env.SERVICE_VERSION ?? "1.0.0",
+  environment: c.env.ENVIRONMENT     ?? "production",
+  timestamp:   new Date().toISOString(),
+}));
+app.get("/healthz", (c) => c.json({ status: "ok", service: "rald-event-bus", timestamp: new Date().toISOString() }));
+app.get("/readyz",  (c) => c.json({ status: "ok", service: "rald-event-bus", timestamp: new Date().toISOString() }));
 
 // ── Security headers ──────────────────────────────────────────────────────────
 app.use("*", async (c, next) => {
@@ -71,9 +88,10 @@ app.use("*", cors({
 }));
 
 // ── Boot validation ────────────────────────────────────────────────────────────
+// RALD_INTERNAL_SECRET is a legacy shared secret — now optional (replaced by machine JWT).
+// Only the three core secrets are required for the service to function.
 app.use("*", async (c, next) => {
   const required = ["SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY", "RALD_JWT_SECRET"];
-  // RALD_INTERNAL_SECRET is a legacy shared secret — now optional (replaced by machine JWT)
   for (const key of required) {
     if (!c.env[key as keyof Bindings]) {
       return c.json({ error: `Missing required env: ${key}` }, 503);
@@ -87,6 +105,9 @@ app.use("*", async (c, next) => {
 });
 
 // ── Routes ────────────────────────────────────────────────────────────────────
+// Note: /health, /healthz, /readyz are handled above (before middleware).
+// healthRoutes also exports /health but it will never be reached for those
+// paths since the early handlers above match first.
 app.route("/", healthRoutes);
 app.route("/", eventsRoutes);
 app.route("/", subscriptionRoutes);
