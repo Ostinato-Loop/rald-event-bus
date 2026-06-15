@@ -1,6 +1,5 @@
-// RALD Event Bus — Canonical Event Types
-// Every major ecosystem action emits one of these events.
-// Consumers register to receive specific event types.
+// RALD Event Bus — Canonical Event Types v1.1.0
+// PayRald V1: merchant payments, vouchers, settlements, risk, wallet events added.
 // LILCKY STUDIO LIMITED
 
 export type EventStatus = "pending" | "delivered" | "failed" | "dead_letter";
@@ -61,28 +60,55 @@ export type RaldEventType =
   | "notification.sent"
   | "notification.delivered"
   | "notification.failed"
-  // ── Payments — payrald-core ──────────────────────────────────────────────────
+  // ── Payments — general ────────────────────────────────────────────────────────
   | "payment.initiated"
   | "payment.completed"
   | "payment.failed"
   | "payment.reversed"
   // ── Transfers ────────────────────────────────────────────────────────────────
+  | "transfer.created"
   | "transfer.initiated"
   | "transfer.completed"
   | "transfer.failed"
   | "transfer.reversed"
   // ── Withdrawals ──────────────────────────────────────────────────────────────
+  | "withdrawal.created"
   | "withdrawal.initiated"
   | "withdrawal.completed"
   | "withdrawal.failed"
   | "withdrawal.reversed"
   // ── Wallet ───────────────────────────────────────────────────────────────────
+  | "wallet.funded"
   | "wallet.credited"
   | "wallet.debited"
   | "wallet.frozen"
   | "wallet.unfrozen"
   | "wallet.provisioned"
   | "wallet.limit_updated"
+  // ── Merchant Payments ────────────────────────────────────────────────────────
+  | "merchant.payment"
+  | "merchant.payment_failed"
+  | "merchant.refund"
+  | "merchant.onboarded"
+  | "merchant.verified"
+  | "merchant.suspended"
+  // ── Vouchers ─────────────────────────────────────────────────────────────────
+  | "voucher.issued"
+  | "voucher.redeemed"
+  | "voucher.expired"
+  | "voucher.refunded"
+  // ── Settlement ───────────────────────────────────────────────────────────────
+  | "settlement.initiated"
+  | "settlement.completed"
+  | "settlement.failed"
+  | "settlement.batch_created"
+  | "settlement.batch_completed"
+  // ── Risk & Fraud ─────────────────────────────────────────────────────────────
+  | "risk.flagged"
+  | "risk.resolved"
+  | "risk.escalated"
+  | "fraud.detected"
+  | "fraud.blocked"
   // ── Alias / ALIA ─────────────────────────────────────────────────────────────
   | "alias.registered"
   | "alias.updated"
