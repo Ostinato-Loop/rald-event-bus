@@ -6,7 +6,7 @@
 export type EventStatus = "pending" | "delivered" | "failed" | "dead_letter";
 
 export type RaldEventType =
-  // Identity & Auth
+  // ── Identity & Auth ─────────────────────────────────────────────────────────
   | "user.created"
   | "user.verified"
   | "user.suspended"
@@ -19,14 +19,14 @@ export type RaldEventType =
   | "email.verified"
   | "phone.verified"
   | "trust_level.changed"
-  // Session
+  // ── Session ─────────────────────────────────────────────────────────────────
   | "session.created"
   | "session.revoked"
   | "session.revoked_all"
   | "device.added"
   | "device.removed"
   | "device.trusted"
-  // Loop (Audio Platform)
+  // ── Loop (Audio Platform) ────────────────────────────────────────────────────
   | "room.created"
   | "room.ended"
   | "room.joined"
@@ -36,42 +36,65 @@ export type RaldEventType =
   | "community.left"
   | "follow.created"
   | "follow.removed"
-  // Messenger
+  // ── Messenger ────────────────────────────────────────────────────────────────
   | "conversation.created"
   | "message.sent"
   | "call.started"
   | "call.ended"
-  // Business
+  // ── Business ─────────────────────────────────────────────────────────────────
   | "business.created"
   | "business.verified"
-  // Developer
+  // ── Developer ────────────────────────────────────────────────────────────────
   | "developer.registered"
   | "developer.approved"
   | "api_key.created"
   | "api_key.revoked"
   | "app.registered"
   | "webhook.registered"
-  // Platform
+  // ── Platform ─────────────────────────────────────────────────────────────────
   | "country.activated"
   | "country.restricted"
   | "feature_flag.changed"
   | "kill_switch.activated"
   | "kill_switch.deactivated"
-  // Notifications
+  // ── Notifications ────────────────────────────────────────────────────────────
   | "notification.sent"
   | "notification.delivered"
   | "notification.failed"
-  // Payments (future)
+  // ── Payments — payrald-core ──────────────────────────────────────────────────
   | "payment.initiated"
   | "payment.completed"
-  | "payment.failed";
+  | "payment.failed"
+  | "payment.reversed"
+  // ── Transfers ────────────────────────────────────────────────────────────────
+  | "transfer.initiated"
+  | "transfer.completed"
+  | "transfer.failed"
+  | "transfer.reversed"
+  // ── Withdrawals ──────────────────────────────────────────────────────────────
+  | "withdrawal.initiated"
+  | "withdrawal.completed"
+  | "withdrawal.failed"
+  | "withdrawal.reversed"
+  // ── Wallet ───────────────────────────────────────────────────────────────────
+  | "wallet.credited"
+  | "wallet.debited"
+  | "wallet.frozen"
+  | "wallet.unfrozen"
+  | "wallet.provisioned"
+  | "wallet.limit_updated"
+  // ── Alias / ALIA ─────────────────────────────────────────────────────────────
+  | "alias.registered"
+  | "alias.updated"
+  | "alias.deactivated"
+  | "alias.resolved";
 
 export interface RaldEvent {
   event_id:    string;
   event_type:  RaldEventType;
-  source:      string;        // originating service (e.g. "rald-auth-core", "loop-api")
-  user_id?:    string;        // subject user (if applicable)
-  actor_id?:   string;        // user who triggered the action (may differ from subject)
+  source:      string;
+  user_id?:    string;
+  actor_id?:   string;
   payload:     Record<string, unknown>;
   metadata:    Record<string, unknown>;
   created_at:  string;
@@ -83,7 +106,7 @@ export interface EventSubscription {
   service_name:    string;
   event_types:     RaldEventType[];
   endpoint_url:    string;
-  secret:          string;   // HMAC secret for payload signature verification
+  secret:          string;
   active:          boolean;
   created_at:      string;
 }
