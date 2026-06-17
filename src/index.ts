@@ -1,7 +1,8 @@
 // RALD Event Bus — Cloudflare Worker
 // Deployed at: events.rald.cloud
-// Version: 2.0.0
-// Phase 5: Added Dead Letter Queue (/dlq/*) and Event Replay (/replay)
+// Version: 2.1.0
+// Phase 5: DLQ + Event Replay
+// Phase 6: Identity Provisioning Chain
 // LILCKY STUDIO LIMITED · 2026-06-17
 
 import { Hono } from "hono";
@@ -15,6 +16,7 @@ import subscriptionRoutes from "./routes/subscriptions";
 import auditStreamRoutes  from "./routes/audit";
 import dlqRoutes          from "./routes/dlq";
 import replayRoutes       from "./routes/replay";
+import identityRoutes     from "./routes/identity";
 import { requestLogger }  from "./lib/logger";
 
 export type Bindings = {
@@ -29,13 +31,18 @@ export type Bindings = {
   FLAG_CACHE_KV:             KVNamespace;
   OPEN_OBSERVE_API_KEY?:     string;
   OPEN_OBSERVE_ENDPOINT?:    string;
+  // Downstream service URLs for provisioning chain
+  PAYRALD_CORE_URL?:         string;
+  ROUTING_URL?:              string;
+  NOTIFY_URL?:               string;
+  MESSENGER_URL?:            string;
 };
 
 export type Variables = {
   db: SupabaseClient;
 };
 
-const VERSION = "2.0.0";
+const VERSION = "2.1.0";
 
 const app = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
@@ -43,7 +50,7 @@ const app = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 app.get("/health",  (c) => c.json({ status: "ok", service: "rald-event-bus", version: VERSION, timestamp: new Date().toISOString() }));
 app.get("/healthz", (c) => c.json({ status: "ok", service: "rald-event-bus", timestamp: new Date().toISOString() }));
 app.get("/readyz",  (c) => c.json({ status: "ok", service: "rald-event-bus", timestamp: new Date().toISOString() }));
-app.get("/version", (c) => c.json({ service: "rald-event-bus", version: VERSION, owner: "LILCKY STUDIO LIMITED", os_phase: "5 — DLQ + Replay" }));
+app.get("/version", (c) => c.json({ service: "rald-event-bus", version: VERSION, owner: "LILCKY STUDIO LIMITED", os_phase: "6 — Identity Provisioning Chain" }));
 
 // ── Security headers ──────────────────────────────────────────────────────────
 app.use("*", async (c, next) => {
@@ -95,8 +102,9 @@ app.route("/", healthRoutes);
 app.route("/", eventsRoutes);
 app.route("/", subscriptionRoutes);
 app.route("/", auditStreamRoutes);
-app.route("/", dlqRoutes);     // Phase 5: Dead Letter Queue
-app.route("/", replayRoutes);  // Phase 5: Event Replay
+app.route("/", dlqRoutes);        // Phase 5: Dead Letter Queue
+app.route("/", replayRoutes);     // Phase 5: Event Replay
+app.route("/", identityRoutes);   // Phase 6: Identity Provisioning Chain
 
 app.get("/system/status", (c) => c.json({
   status:  "operational",
@@ -107,6 +115,7 @@ app.get("/system/status", (c) => c.json({
     audit:        "✓ GET /audit",
     dlq:          "✓ GET/POST /dlq, /dlq/stats, /dlq/:id/retry|drop, /dlq/retry-all",
     replay:       "✓ POST /replay, GET /replay/history",
+    identity:     "✓ POST /internal/provision-identity, GET /internal/provision-status/:userId",
   },
   timestamp: new Date().toISOString(),
 }));
