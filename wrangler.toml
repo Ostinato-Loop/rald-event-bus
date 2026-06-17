@@ -4,17 +4,22 @@ compatibility_date = "2025-06-01"
 compatibility_flags = []
 
 [vars]
-ENVIRONMENT  = "production"
-SERVICE_NAME = "rald-event-bus"
-SERVICE_VERSION = "1.0.0"
-SUPABASE_URL = "https://onxdcikfttdmnhofsuwo.supabase.co"
+ENVIRONMENT     = "production"
+SERVICE_NAME    = "rald-event-bus"
+SERVICE_VERSION = "2.1.0"
+SUPABASE_URL    = "https://onxdcikfttdmnhofsuwo.supabase.co"
+
+# Downstream service URLs — used by identity provisioning chain
+PAYRALD_CORE_URL = "https://core.pay.rald.cloud"
+ROUTING_URL      = "https://routing.rald.cloud"
+NOTIFY_URL       = "https://notify.rald.cloud"
+MESSENGER_URL    = "https://messenger.rald.cloud"
 
 [[routes]]
 pattern = "events.rald.cloud/*"
 zone_name = "rald.cloud"
 
-# KV IDs are patched at deploy time by the "Resolve KV namespace IDs" step
-# in .github/workflows/deploy.yml — do NOT hardcode IDs here.
+# KV IDs patched at deploy time by CI — do NOT hardcode here
 [[kv_namespaces]]
 binding = "RATE_LIMIT_KV"
 id = "REPLACE_WITH_RATE_LIMIT_KV_ID"
