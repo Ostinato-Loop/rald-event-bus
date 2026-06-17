@@ -1,10 +1,8 @@
 // RALD Event Bus — Cloudflare Worker
 // Deployed at: events.rald.cloud
-// Version: 1.0.0
-// Purpose: Central event fabric for the RALD ecosystem.
-//   Every major action emits an event. Subscribers receive fan-out via webhooks.
-//   No direct product-to-product spaghetti APIs.
-// LILCKY STUDIO LIMITED
+// Version: 2.0.0
+// Phase 5: Added Dead Letter Queue (/dlq/*) and Event Replay (/replay)
+// LILCKY STUDIO LIMITED · 2026-06-17
 
 import { Hono } from "hono";
 import { cors } from "hono/cors";
@@ -15,103 +13,103 @@ import healthRoutes       from "./routes/health";
 import eventsRoutes       from "./routes/events";
 import subscriptionRoutes from "./routes/subscriptions";
 import auditStreamRoutes  from "./routes/audit";
-import { requestLogger }   from "./lib/logger";
+import dlqRoutes          from "./routes/dlq";
+import replayRoutes       from "./routes/replay";
+import { requestLogger }  from "./lib/logger";
 
 export type Bindings = {
   SUPABASE_URL:              string;
   SUPABASE_SERVICE_ROLE_KEY: string;
   RALD_JWT_SECRET:           string;
-  RALD_INTERNAL_SECRET?:     string;  // legacy shared secret — now optional (replaced by machine JWT)
+  RALD_INTERNAL_SECRET?:     string;
   ENVIRONMENT:               string;
   SERVICE_NAME:              string;
   SERVICE_VERSION:           string;
   RATE_LIMIT_KV:             KVNamespace;
   FLAG_CACHE_KV:             KVNamespace;
-  OPEN_OBSERVE_API_KEY?:     string;  // OpenObserve ingest key (C-CERT-004)
-  OPEN_OBSERVE_ENDPOINT?:    string;  // e.g. https://observe.rald.cloud/api/rald/rald-event-bus/_json
+  OPEN_OBSERVE_API_KEY?:     string;
+  OPEN_OBSERVE_ENDPOINT?:    string;
 };
 
 export type Variables = {
   db: SupabaseClient;
 };
 
+const VERSION = "2.0.0";
+
 const app = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
-// ── Health bypass — MUST be FIRST, before all middleware ──────────────────────
-// Health / readiness probes must always return 200 regardless of whether
-// runtime secrets are provisioned. The boot validation below returns 503 if any
-// required env var is missing — without this bypass that 503 hits health probes
-// too, making the service appear down even when the worker itself is running.
-// G.14 pattern: same fix applied to rald-inbox, rald-notify, rald-search,
-// rald-auth-core during the G.14 infrastructure hardening sprint.
-app.get("/health",  (c) => c.json({
-  status:      "ok",
-  service:     "rald-event-bus",
-  version:     c.env.SERVICE_VERSION ?? "1.0.0",
-  environment: c.env.ENVIRONMENT     ?? "production",
-  timestamp:   new Date().toISOString(),
-}));
+// ── Health bypass — MUST be FIRST ─────────────────────────────────────────────
+app.get("/health",  (c) => c.json({ status: "ok", service: "rald-event-bus", version: VERSION, timestamp: new Date().toISOString() }));
 app.get("/healthz", (c) => c.json({ status: "ok", service: "rald-event-bus", timestamp: new Date().toISOString() }));
 app.get("/readyz",  (c) => c.json({ status: "ok", service: "rald-event-bus", timestamp: new Date().toISOString() }));
+app.get("/version", (c) => c.json({ service: "rald-event-bus", version: VERSION, owner: "LILCKY STUDIO LIMITED", os_phase: "5 — DLQ + Replay" }));
 
 // ── Security headers ──────────────────────────────────────────────────────────
 app.use("*", async (c, next) => {
   await next();
   c.header("X-Content-Type-Options", "nosniff");
-  c.header("X-Frame-Options", "DENY");
-  c.header("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
-  c.header("Referrer-Policy", "no-referrer");
+  c.header("X-Frame-Options",         "DENY");
+  c.header("Strict-Transport-Security","max-age=31536000; includeSubDomains");
+  c.header("Referrer-Policy",         "no-referrer");
+  c.header("X-RALD-Version",          VERSION);
+  c.header("X-RALD-Service",          "event-bus");
 });
 
-// ── Request logger — OpenObserve log shipping ────────────────────────────────
 app.use("*", requestLogger("rald-event-bus"));
 
-// ── CORS — internal RALD services only ───────────────────────────────────────
+// ── CORS — internal RALD services + api.rald.cloud ───────────────────────────
 app.use("*", cors({
   origin: (origin) => {
-    const allowed = [
-      "https://auth.rald.cloud",
-      "https://loop-api.rald.cloud",
-      "https://chat.rald.cloud",
-      "https://notification.rald.cloud",
-      "https://realtime.rald.cloud",
-      "https://inbox.rald.cloud",
-      "https://search.rald.cloud",
-      "https://config.rald.cloud",
-      "https://control.rald.cloud",
-    ];
-    return allowed.includes(origin ?? "") ? origin : null;
+    const allowed = new Set([
+      "https://auth.rald.cloud",        "https://api.rald.cloud",
+      "https://loop-api.rald.cloud",    "https://chat.rald.cloud",
+      "https://notification.rald.cloud","https://realtime.rald.cloud",
+      "https://inbox.rald.cloud",       "https://search.rald.cloud",
+      "https://config.rald.cloud",      "https://control.rald.cloud",
+      "https://admin.rald.cloud",       "https://pay.rald.cloud",
+    ]);
+    return allowed.has(origin ?? "") ? origin : null;
   },
-  allowMethods:  ["GET", "POST", "DELETE", "OPTIONS"],
-  allowHeaders:  ["Content-Type", "Authorization", "X-Internal-Secret", "X-Source-Service"],
-  exposeHeaders: ["X-RALD-Event-ID", "X-RALD-Request-ID"],
+  allowMethods:  ["GET","POST","DELETE","OPTIONS"],
+  allowHeaders:  ["Content-Type","Authorization","X-Internal-Secret","X-Source-Service","X-RALD-Internal-Key"],
+  exposeHeaders: ["X-RALD-Event-ID","X-RALD-Request-ID"],
 }));
 
-// ── Boot validation ────────────────────────────────────────────────────────────
-// RALD_INTERNAL_SECRET is a legacy shared secret — now optional (replaced by machine JWT).
-// Only the three core secrets are required for the service to function.
+// ── Boot validation + Supabase client ─────────────────────────────────────────
 app.use("*", async (c, next) => {
-  const required = ["SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY", "RALD_JWT_SECRET"];
+  const required = ["SUPABASE_URL","SUPABASE_SERVICE_ROLE_KEY","RALD_JWT_SECRET"];
   for (const key of required) {
     if (!c.env[key as keyof Bindings]) {
       return c.json({ error: `Missing required env: ${key}` }, 503);
     }
   }
-  const db = createClient(c.env.SUPABASE_URL, c.env.SUPABASE_SERVICE_ROLE_KEY, {
+  c.set("db", createClient(c.env.SUPABASE_URL, c.env.SUPABASE_SERVICE_ROLE_KEY, {
     auth: { persistSession: false },
-  });
-  c.set("db", db);
+  }));
   return next();
 });
 
 // ── Routes ────────────────────────────────────────────────────────────────────
-// Note: /health, /healthz, /readyz are handled above (before middleware).
-// healthRoutes also exports /health but it will never be reached for those
-// paths since the early handlers above match first.
 app.route("/", healthRoutes);
 app.route("/", eventsRoutes);
 app.route("/", subscriptionRoutes);
 app.route("/", auditStreamRoutes);
+app.route("/", dlqRoutes);     // Phase 5: Dead Letter Queue
+app.route("/", replayRoutes);  // Phase 5: Event Replay
+
+app.get("/system/status", (c) => c.json({
+  status:  "operational",
+  version: VERSION,
+  features: {
+    events:       "✓ POST /events (publish + fan-out)",
+    subscriptions:"✓ GET/POST/DELETE /subscriptions",
+    audit:        "✓ GET /audit",
+    dlq:          "✓ GET/POST /dlq, /dlq/stats, /dlq/:id/retry|drop, /dlq/retry-all",
+    replay:       "✓ POST /replay, GET /replay/history",
+  },
+  timestamp: new Date().toISOString(),
+}));
 
 app.notFound((c) => c.json({ error: "Not found" }, 404));
 app.onError((err, c) => {
